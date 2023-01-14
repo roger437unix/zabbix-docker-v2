@@ -1,0 +1,141 @@
+version: '3.9'
+
+volumes:
+  pgsqldata:
+  pgsqlconf:
+  pgsqllog:
+  zabbixdata:
+  grafanadata:
+  zbx-proxy_agentd:
+  zbx-proxy_modules:
+  zbx-proxy_enc:
+  zbx-proxy_ssh_keys:
+  proxy-externalscripts:
+  proxy-modules:
+  proxy-enc:
+  proxy-ssh_keys:
+  proxy-mibs:
+
+networks:
+  network-zabbix:
+    driver: bridge
+    ipam:      
+      config:
+      - subnet: 10.0.1.0/24
+
+  network-proxy:
+    driver: bridge
+    ipam:      
+      config:
+      - subnet: 172.31.0.0/24
+
+  network-web:
+    driver: bridge
+    ipam:      
+      config:
+      - subnet: 192.168.0.0/24
+
+services:
+  pgsql:
+    container_name: pgsql
+    image: postgres:latest
+    networks:
+      - network-zabbix
+      - network-web
+    volumes:
+      - pgsqldata:/var/lib/postgresql/data
+      - pgsqlconf:/etc/postgresql
+      - pgsqllog:/var/log/postgresql
+    environment:
+      POSTGRES_USER: tux
+      POSTGRES_PASSWORD: Mud@r123
+      POSTGRES_DB: zabbix
+
+  zabbix-server:
+    container_name: zabbix-server
+    image: zabbix/zabbix-server-pgsql:latest
+    networks:
+      - network-zabbix
+      - network-web
+      - network-proxy
+    links:
+      - pgsql
+    volumes:
+      - zabbixdata:/usr/lib/zabbix
+    environment:
+      DB_SERVER_HOST: pgsql
+      POSTGRES_USER: tux
+      POSTGRES_PASSWORD: Mud@r123
+      POSTGRES_DB: zabbix
+    depends_on:
+      - pgsql
+
+  zabbix-web:
+    container_name: web
+    image: zabbix/zabbix-web-nginx-pgsql:latest
+    networks:
+      - network-web
+    links:
+      - pgsql
+      - zabbix-server
+    ports:
+      - '80:8080'
+      - '443:8443'
+    environment:
+      ZBX_SERVER_HOST: zabbix-server
+      DB_SERVER_HOST: pgsql
+      POSTGRES_USER: tux
+      POSTGRES_PASSWORD: Mud@r123
+      POSTGRES_DB: zabbix
+    depends_on:
+      - pgsql
+      - zabbix-server
+    
+  grafana:
+    container_name: grafana
+    image: grafana/grafana
+    networks:
+      - network-zabbix
+    links:
+      - pgsql
+      - zabbix-server
+    ports:
+      - '3000:3000'
+    volumes:
+      - grafanadata:/var/lib/grafana
+    depends_on:
+      - pgsql
+      - zabbix-server
+
+  zabbix-agent:
+    container_name: zabbix-agent
+    image: zabbix/zabbix-agent:alpine-6.2-latest
+    networks:
+      - network-zabbix
+    ports:
+      - "10050:10050"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - zbx-proxy_agentd:/etc/zabbix/zabbix_agentd.d:ro
+      - zbx-proxy_modules:/var/lib/zabbix/modules:ro
+      - zbx-proxy_enc:/var/lib/zabbix/enc:ro
+      - zbx-proxy_ssh_keys:/var/lib/zabbix/ssh_keys:ro    
+    privileged: true
+    pid: "host" 
+
+  zabbix-proxy-sqlite3:
+    container_name: proxy
+    image: zabbix/zabbix-proxy-sqlite3:alpine-6.2-latest
+    networks:
+      - network-proxy 
+    ports:
+    - "10061:10051"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - proxy-externalscripts:/usr/lib/zabbix/externalscripts:ro
+      - proxy-modules:/var/lib/zabbix/modules:ro
+      - proxy-enc:/var/lib/zabbix/enc:ro
+      - proxy-ssh_keys:/var/lib/zabbix/ssh_keys:ro
+      - proxy-mibs:/var/lib/zabbix/mibs:ro  
